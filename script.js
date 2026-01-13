@@ -89,7 +89,7 @@ const elements = {
     courseName: document.getElementById('courseName'),
     courseCredits: document.getElementById('courseCredits'),
     courseGrade: document.getElementById('courseGrade'),
-    courseDescription: document.getElementById('courseDescription'),
+    
     addCourse: document.getElementById('addCourse'),
     coursesList: document.getElementById('coursesList'),
     courseCount: document.getElementById('courseCount'),
@@ -414,6 +414,7 @@ function showSuggestionsModal(suggestion, originalName) {
         // Force add the course with original name
         const credits = parseInt(elements.courseCredits.value) || 0;
         const gradeInput = elements.courseGrade.value.trim();
+        const description = elements.courseDescription.value.trim(); // Get description from textarea
         const { accepted, displayGrade } = validateGrade(gradeInput);
 
         const course = {
@@ -421,6 +422,7 @@ function showSuggestionsModal(suggestion, originalName) {
             name: originalName,
             credits,
             gradeInput,
+            description, // Add description to the course object
             displayGrade,
             accepted,
             isValidCourse: false,
@@ -439,7 +441,7 @@ function showSuggestionsModal(suggestion, originalName) {
         elements.courseName.value = '';
         elements.courseCredits.value = '';
         elements.courseGrade.value = '';
-        elements.courseDescription.value = '';
+
 
         renderCourses();
         updateCourseCount();
@@ -519,7 +521,7 @@ function addCourse() {
     const name = elements.courseName.value.trim();
     const credits = parseInt(elements.courseCredits.value) || 0;
     const gradeInput = elements.courseGrade.value.trim();
-    const description = elements.courseDescription.value.trim();
+    const description = ''; // Set description as empty string for now
 
     if (!name || !credits || !gradeInput) {
         showNotification(
@@ -555,7 +557,7 @@ function addCourse() {
     // Validate course with database
     const validation = validateCourseWithDatabase(name, credits, gradeInput, description);
 
-    // Show warnings if any
+    // Show warnings for credits and grade mismatches only (require user confirmation)
     if (validation.warnings.length > 0) {
         let shouldContinue = true;
 
@@ -574,18 +576,16 @@ function addCourse() {
                         elements.courseCredits.value = warning.correctValue;
                     }
                 }
-            } else {
-                showWarningModal(warning, validation.suggestions);
             }
         });
 
         if (!shouldContinue) return;
     }
 
-    // Show suggestions if course not found but similar courses exist
-    if (validation.suggestions.length > 0) {
+    // Show suggestions modal only if course not found and similar courses exist, but still allow adding
+    if (validation.suggestions.length > 0 && !validation.isValidCourse) {
         showSuggestionsModal(validation.suggestions[0], name);
-        return; // Don't add the course yet, let user choose
+        // Don't return here - let the user add the course anyway
     }
 
     const course = {
@@ -593,7 +593,7 @@ function addCourse() {
         name,
         credits,
         gradeInput,
-        description,
+        description, // Add description to the course object
         displayGrade: validation.displayGrade,
         accepted: validation.accepted,
         isValidCourse: validation.isValidCourse,
@@ -607,72 +607,69 @@ function addCourse() {
     elements.courseName.value = '';
     elements.courseCredits.value = '';
     elements.courseGrade.value = '';
-    elements.courseDescription.value = '';
-
 
     renderCourses();
     updateCourseCount();
 
-    const successMessage = validation.isValidCourse 
-        ? (state.currentLanguage === 'ar' ? 'تمت إضافة المادة بنجاح ✓' : 'Course added successfully ✓')
-        : (state.currentLanguage === 'ar' ? 'تمت إضافة المادة (غير معتمدة) ⚠️' : 'Course added (not verified) ⚠️');
+    // Show success message with appropriate type
+    let successMessage, notificationType;
+    if (validation.isValidCourse) {
+        successMessage = state.currentLanguage === 'ar' ? 'تمت إضافة المادة بنجاح ✓' : 'Course added successfully ✓';
+        notificationType = 'success';
+    } else {
+        successMessage = state.currentLanguage === 'ar' ? 'تمت إضافة المادة المخصصة ✓' : 'Custom course added ✓';
+        notificationType = 'success';
+    }
 
-    showNotification(successMessage, validation.isValidCourse ? 'success' : 'warning');
+    showNotification(successMessage, notificationType);
+
+    // Show warning notifications for any issues (but don't block adding)
+    validation.warnings.forEach(warning => {
+        if (warning.type === 'not_found') {
+            showNotification(warning.message, 'warning');
+        }
+    });
 }
 
 function validateCourseWithDatabase(courseName, credits, gradeInput, description) {
     const normalizedCourseName = courseName.toLowerCase().trim();
-    const normalizedDescription = description.toLowerCase().trim();
     let warnings = [];
     let suggestions = [];
 
     // Find matching course in database
-    const matchingCourse = Object.keys(approvedCoursesDB).find(dbCourseName => 
-        dbCourseName.toLowerCase() === normalizedCourseName ||
-        normalizedCourseName.includes(dbCourseName.toLowerCase()) ||
-        dbCourseName.toLowerCase().includes(normalizedCourseName)
+    const matchingCourseKey = Object.keys(approvedCoursesDB).find(dbCourseName => 
+        dbCourseName.toLowerCase() === normalizedCourseName
     );
 
     let dbCourse = null;
-    if (matchingCourse) {
-        dbCourse = approvedCoursesDB[matchingCourse];
+    if (matchingCourseKey) {
+        dbCourse = approvedCoursesDB[matchingCourseKey];
     }
 
-    // Perform description similarity check if a course is found
-    if (dbCourse && dbCourse.description) {
-        const similarityScore = calculateDescriptionSimilarity(normalizedDescription, dbCourse.description.toLowerCase());
-        const similarityThreshold = 0.6; // Threshold for considering descriptions similar
-
-        if (similarityScore < similarityThreshold) {
-            warnings.push({
-                type: 'description_mismatch',
-                message: state.currentLanguage === 'ar'
-                    ? `⚠️ تحذير: وصف المادة المدخل يختلف بشكل كبير عن الوصف المعتمد (${matchingCourse}).`
-                    : `⚠️ Warning: The entered course description significantly differs from the approved description for (${matchingCourse}).`,
-                similarity: similarityScore
-            });
-        }
-    } else if (!matchingCourse) {
-        // Course not found in database, try to find similar courses by name and description
+    // Check if course not found and try to find similar courses
+    if (!dbCourse) {
         const similarByName = findSimilarCourses(normalizedCourseName);
-        const similarByDescription = findSimilarCoursesByDescription(normalizedDescription);
 
-        // Combine and prioritize suggestions
-        const combinedSuggestions = [...similarByName, ...similarByDescription];
-        const uniqueSuggestions = Array.from(new Map(combinedSuggestions.map(item => [item.name, item])).values());
-        
-        if (uniqueSuggestions.length > 0) {
+        if (similarByName.length > 0) {
             suggestions.push({
                 type: 'similar_courses',
                 message: state.currentLanguage === 'ar' 
                     ? '💡 هل تقصد إحدى هذه المواد؟' 
                     : '💡 Did you mean one of these courses?',
-                courses: uniqueSuggestions
+                courses: similarByName
             });
         }
+
+        // Add informational warning but don't block
+        warnings.push({
+            type: 'not_found',
+            message: state.currentLanguage === 'ar' 
+                ? `ℹ️ المادة "${courseName}" غير موجودة في قاعدة البيانات - سيتم إضافتها كمادة مخصصة` 
+                : `ℹ️ Course "${courseName}" not found in database - will be added as custom course`,
+        });
     }
 
-    // Check credit hours if a matching course was found
+    // Check credit hours and grade if a matching course was found
     if (dbCourse) {
         if (credits !== dbCourse.credits) {
             warnings.push({
@@ -706,7 +703,6 @@ function validateCourseWithDatabase(courseName, credits, gradeInput, description
 
         return {
             isValidCourse: true,
-            matchingCourseName: matchingCourse,
             warnings,
             suggestions,
             accepted,
@@ -714,14 +710,7 @@ function validateCourseWithDatabase(courseName, credits, gradeInput, description
             category: dbCourse.category
         };
     } else {
-        // Course not found in database
-        warnings.push({
-            type: 'not_found',
-            message: state.currentLanguage === 'ar' 
-                ? `⚠️ تحذير: المادة "${courseName}" غير موجودة في قاعدة البيانات` 
-                : `⚠️ Warning: Course "${courseName}" not found in database`,
-        });
-
+        // Course not found - validate grade anyway
         const { accepted, displayGrade, isValid } = validateGrade(gradeInput);
 
         if (!isValid) {
@@ -739,7 +728,7 @@ function validateCourseWithDatabase(courseName, credits, gradeInput, description
             suggestions,
             accepted,
             displayGrade,
-            category: 'unknown'
+            category: 'custom'
         };
     }
 }
@@ -1310,17 +1299,11 @@ function initializeEventListeners() {
     initializeAutocomplete();
 
     // Enter key support for form inputs
-    [elements.courseName, elements.courseCredits, elements.courseGrade, elements.courseDescription].forEach(element => {
+    [elements.courseName, elements.courseCredits, elements.courseGrade].forEach(element => {
         element?.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                // Prevent default form submission if Enter is pressed in description
-                if (e.target === elements.courseDescription) {
-                    e.preventDefault();
-                    // Optionally, trigger addCourse or handle as needed
-                    // addCourse(); 
-                } else {
-                    addCourse();
-                }
+                e.preventDefault(); // Prevent default form submission on Enter
+                addCourse();
             }
         });
     });
