@@ -1,4 +1,3 @@
-
 const form = document.getElementById("login-form");
 const errorMsg = document.getElementById("error-message");
 const loginBtn = document.getElementById("login-btn");
