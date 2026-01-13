@@ -1,4 +1,3 @@
-
 const form = document.getElementById("register-form");
 const errorMsg = document.getElementById("error-message");
 const successMsg = document.getElementById("success-message");
