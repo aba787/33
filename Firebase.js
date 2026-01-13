@@ -1,5 +1,4 @@
-
-// Firebase CDN Configuration
+// Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyD58yPKXZrsDUoRhx3By1jYTFBmPnMuV7c",
   authDomain: "tgsire123.firebaseapp.com",
@@ -10,37 +9,38 @@ const firebaseConfig = {
   measurementId: "G-FJKMH9KLQB"
 };
 
-// Initialize Firebase (will be done after CDN loads)
-let app, analytics, db, auth;
-
-// Wait for Firebase CDN to load
-window.addEventListener('DOMContentLoaded', () => {
-  if (typeof firebase !== 'undefined') {
-    app = firebase.initializeApp(firebaseConfig);
-    
-    // Initialize analytics only if available
-    if (firebase.analytics && typeof firebase.analytics === 'function') {
+// Initialize Firebase using global functions
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof window.initializeApp !== 'undefined') {
+    try {
+      // Initialize Firebase
+      const app = window.initializeApp(firebaseConfig);
+      
+      // Initialize Firebase services
+      const auth = window.getAuth(app);
+      const db = window.getFirestore(app);
+      
+      let analytics;
       try {
-        analytics = firebase.analytics(app);
+        analytics = window.getAnalytics(app);
         console.log('Firebase Analytics initialized');
       } catch (error) {
         console.log('Analytics not available:', error.message);
       }
-    }
-    
-    db = firebase.firestore();
-    auth = firebase.auth();
-    
-    console.log('Firebase initialized successfully');
-    
-    // Make available globally
-    window.firebaseApp = app;
-    window.firebaseAuth = auth;
-    window.firebaseDb = db;
-    if (analytics) {
-      window.firebaseAnalytics = analytics;
+
+      console.log('Firebase initialized successfully');
+
+      // Make available globally
+      window.firebaseApp = app;
+      window.firebaseAuth = auth;
+      window.firebaseDb = db;
+      if (analytics) {
+        window.firebaseAnalytics = analytics;
+      }
+    } catch (error) {
+      console.log('Firebase initialization error:', error);
     }
   } else {
-    console.error('Firebase CDN failed to load');
+    console.log('Firebase functions not available yet');
   }
 });
